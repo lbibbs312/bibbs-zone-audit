@@ -1160,6 +1160,14 @@
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    // When a newly deployed version takes over, reload once so the open app
+    // immediately runs the fresh shell instead of the previous cached one.
+    let reloadedForUpdate = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadedForUpdate) return;
+      reloadedForUpdate = true;
+      window.location.reload();
+    });
   }
 
   loadDataset().then(() => { route(); refreshBadge(); retryQueuedReports(); });
