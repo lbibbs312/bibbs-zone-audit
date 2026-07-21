@@ -2,7 +2,7 @@
    Shell files are cached for offline use; zones.json is network-first so
    the listing is as fresh as the last successful publish, with the cached
    copy as the offline fallback. */
-const VERSION = "bza-v1";
+const VERSION = "bza-v2";
 const SHELL = [
   "./",
   "index.html",

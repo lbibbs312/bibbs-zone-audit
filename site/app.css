@@ -264,6 +264,42 @@ fieldset { border: 0; padding: 0; min-inline-size: 0; }
 .form-help { color: var(--muted); font-size: .8rem; }
 .form-error { color: #8f2410; font-size: .85rem; font-weight: 700; }
 
+.big-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+.big-choice label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 76px;
+  border: 2px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+  font-size: 1.15rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.big-choice label.wide { grid-column: 1 / -1; min-height: 54px; font-size: .95rem; }
+.big-choice input { position: absolute; opacity: 0; }
+.big-choice label:has(input:checked) { border-color: var(--navy); background: var(--navy-soft); color: var(--navy); }
+
+.button-send { width: 100%; min-height: 54px; font-size: 1.05rem; }
+
+.chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  font-size: .74rem;
+  font-weight: 700;
+}
+.chip-sent { border-color: #9dc3a8; background: #e5f2e8; color: #1c6b34; }
+.chip-queued { border-color: #d8b26a; background: #faf1dd; color: #7a4a12; }
+
 textarea, input[type="text"] {
   width: 100%;
   padding: 10px 12px;
