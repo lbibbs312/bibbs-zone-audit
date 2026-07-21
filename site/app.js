@@ -646,14 +646,11 @@
       <h1>Quick check</h1>
       <p class="form-help">One question, sent immediately for review. Your location and time are captured automatically.</p>
       <form id="quick-form">
-        <div class="safety-banner"><span class="safety-icon">!</span>
-          <p><strong>Continue only if you are legally parked or a passenger.</strong> Never answer while driving.</p></div>
-
         <fieldset class="panel">
           <legend>Are workers still present in this work zone?</legend>
           <div class="big-choice">
-            <label><input type="radio" name="workers_present" value="yes" required><span>Yes</span></label>
-            <label><input type="radio" name="workers_present" value="no" required><span>No</span></label>
+            <label class="choice-yes"><input type="radio" name="workers_present" value="yes" required><span>Yes</span></label>
+            <label class="choice-no"><input type="radio" name="workers_present" value="no" required><span>No</span></label>
             <label class="wide"><input type="radio" name="workers_present" value="unknown" required><span>I could not tell</span></label>
           </div>
         </fieldset>
