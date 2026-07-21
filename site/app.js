@@ -327,7 +327,7 @@
       </details>
       <div class="zone-actions">
         <a class="button button-primary" href="#/report/${encodeURIComponent(zone.event_id)}">Report what you saw</a>
-        <a class="button" href="#/zone/${encodeURIComponent(zone.event_id)}">Reported area</a>
+        <a class="button" href="#/zone/${encodeURIComponent(zone.event_id)}">MDOT listing</a>
       </div>
     </article>`;
 
@@ -339,31 +339,62 @@
       return;
     }
     const query = (window.sessionStorage.getItem("bza-query") || "").trim().toLowerCase();
+    const sortMode = window.sessionStorage.getItem("bza-sort") || "nearest";
+    const statusFilter = window.sessionStorage.getItem("bza-status") || "all";
     let zones = dataset.zones;
     if (query) {
       zones = zones.filter((zone) =>
         [zone.road_display, zone.event_id, zone.beginning_cross_street, zone.ending_cross_street, zone.description]
           .some((field) => field && String(field).toLowerCase().includes(query)));
     }
+    if (statusFilter !== "all") {
+      zones = zones.filter(
+        (zone) => (zone.event_status || "").toLowerCase() === statusFilter,
+      );
+    }
     zones = zones.map(withDistance);
-    if (userLocation) {
+    if (sortMode === "ending") {
+      zones.sort((a, b) => String(a.end_date || "9999").localeCompare(String(b.end_date || "9999")));
+    } else if (sortMode === "updated") {
+      zones.sort((a, b) => String(b.update_date || "").localeCompare(String(a.update_date || "")));
+    } else if (userLocation) {
       zones.sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity));
     }
     const total = zones.length;
     zones = zones.slice(0, LIST_LIMIT);
+    const sortNote = {
+      nearest: userLocation
+        ? `Sorted nearest first (GPS accuracy about ${Math.round(userLocation.accuracyMeters)} m).`
+        : "Tap Near Me to sort by distance — your browser will ask before sharing location.",
+      ending: "Sorted by published end date, ending soonest first.",
+      updated: "Sorted by MDOT's last update, newest first.",
+    }[sortMode];
 
     view.innerHTML = `
       <h1>Michigan work zones</h1>
-      <p class="form-help">Published MDOT construction listings. Choose one to see its reported area or to report what you saw.</p>
+      <p class="form-help">Published MDOT construction listings. Open the MDOT listing or report what you saw.</p>
       <div class="toolbar">
         <input id="search" type="search" placeholder="Search road, cross street, or ETX number" value="${esc(window.sessionStorage.getItem("bza-query") || "")}">
-        <div class="button-row">
+        <div class="toolbar-row">
           <button id="near-me" class="button button-accent" type="button">Near Me</button>
+          <label class="toolbar-select">Sort
+            <select id="sort-mode">
+              <option value="nearest" ${sortMode === "nearest" ? "selected" : ""}>Nearest</option>
+              <option value="ending" ${sortMode === "ending" ? "selected" : ""}>Ending soonest</option>
+              <option value="updated" ${sortMode === "updated" ? "selected" : ""}>Newest from MDOT</option>
+            </select>
+          </label>
+          <label class="toolbar-select">Status
+            <select id="status-filter">
+              <option value="all" ${statusFilter === "all" ? "selected" : ""}>All</option>
+              <option value="active" ${statusFilter === "active" ? "selected" : ""}>Active</option>
+              <option value="planned" ${statusFilter === "planned" ? "selected" : ""}>Planned</option>
+              <option value="completed" ${statusFilter === "completed" ? "selected" : ""}>Completed</option>
+            </select>
+          </label>
         </div>
-        <p class="location-status" id="location-status">${userLocation
-          ? `Sorted by distance from your location (GPS accuracy about ${Math.round(userLocation.accuracyMeters)} m).`
-          : "Your browser will ask before sharing location."}</p>
-        <p class="list-note">Showing ${zones.length} of ${total}${total !== dataset.zone_count ? ` matching (${dataset.zone_count} statewide)` : " statewide"} — search or use Near Me to narrow.</p>
+        <p class="location-status" id="location-status">${esc(sortNote)}</p>
+        <p class="list-note">Showing ${zones.length} of ${total}${total !== dataset.zone_count ? ` matching (${dataset.zone_count} statewide)` : " statewide"} — search or filter to narrow.</p>
       </div>
       <div class="card-list">${zones.map(zoneCard).join("") || `<p class="empty">No listings match this search.</p>`}</div>`;
 
@@ -371,8 +402,18 @@
       window.sessionStorage.setItem("bza-query", event.target.value);
       renderList();
     });
+    document.getElementById("sort-mode").addEventListener("change", async (event) => {
+      window.sessionStorage.setItem("bza-sort", event.target.value);
+      if (event.target.value === "nearest" && !userLocation) await requestLocation();
+      renderList();
+    });
+    document.getElementById("status-filter").addEventListener("change", (event) => {
+      window.sessionStorage.setItem("bza-status", event.target.value);
+      renderList();
+    });
     document.getElementById("near-me").addEventListener("click", async () => {
       document.getElementById("location-status").textContent = "Requesting your current location…";
+      window.sessionStorage.setItem("bza-sort", "nearest");
       const location = await requestLocation();
       if (!location) {
         document.getElementById("location-status").textContent =
