@@ -362,6 +362,13 @@
     }
     const total = zones.length;
     zones = zones.slice(0, LIST_LIMIT);
+    const presentStatuses = new Set(
+      dataset.zones.map((zone) => (zone.event_status || "").toLowerCase()).filter(Boolean),
+    );
+    const statusOptions = [
+      ...["active", "planned", "pending", "completed"].filter((status) => presentStatuses.has(status)),
+      ...[...presentStatuses].filter((status) => !["active", "planned", "pending", "completed"].includes(status)).sort(),
+    ];
     const sortNote = {
       nearest: userLocation
         ? `Sorted nearest first (GPS accuracy about ${Math.round(userLocation.accuracyMeters)} m).`
@@ -387,9 +394,7 @@
           <label class="toolbar-select">Status
             <select id="status-filter">
               <option value="all" ${statusFilter === "all" ? "selected" : ""}>All</option>
-              <option value="active" ${statusFilter === "active" ? "selected" : ""}>Active</option>
-              <option value="planned" ${statusFilter === "planned" ? "selected" : ""}>Planned</option>
-              <option value="completed" ${statusFilter === "completed" ? "selected" : ""}>Completed</option>
+              ${statusOptions.map((status) => `<option value="${esc(status)}" ${statusFilter === status ? "selected" : ""}>${esc(statusLabel(status))}</option>`).join("")}
             </select>
           </label>
         </div>
@@ -500,13 +505,17 @@
     </div>`;
 
   const photoSection = (idPrefix) => `
+    <input id="${idPrefix}-photo-capture" type="file" accept="image/*" capture="environment" hidden>
     <input id="${idPrefix}-photo-input" type="file" accept="image/*" multiple hidden>
     <div class="button-row">
+      <button class="button button-primary" type="button" id="${idPrefix}-capture-photo">Capture photo</button>
       <button class="button" type="button" id="${idPrefix}-add-photos">Add photographs</button>
     </div>
+    <p class="form-help">Original files are kept exactly as captured — no resizing or recompression. Up to ${MAX_PHOTOS}.</p>
     <div id="${idPrefix}-photo-list" class="photo-grid"></div>`;
 
   const wirePhotoSection = (idPrefix) => {
+    const captureInput = document.getElementById(`${idPrefix}-photo-capture`);
     const input = document.getElementById(`${idPrefix}-photo-input`);
     const list = document.getElementById(`${idPrefix}-photo-list`);
     const render = () => {
@@ -521,15 +530,18 @@
         list.append(figure);
       });
     };
-    document.getElementById(`${idPrefix}-add-photos`).addEventListener("click", () => input.click());
-    input.addEventListener("change", () => {
-      for (const file of input.files) {
+    const addFiles = (picker) => {
+      for (const file of picker.files) {
         if (reportState.photos.length >= MAX_PHOTOS) break;
         reportState.photos.push(file);
       }
-      input.value = "";
+      picker.value = "";
       render();
-    });
+    };
+    document.getElementById(`${idPrefix}-capture-photo`).addEventListener("click", () => captureInput.click());
+    document.getElementById(`${idPrefix}-add-photos`).addEventListener("click", () => input.click());
+    captureInput.addEventListener("change", () => addFiles(captureInput));
+    input.addEventListener("change", () => addFiles(input));
     list.addEventListener("click", (event) => {
       const button = event.target.closest(".photo-remove");
       if (!button) return;
@@ -628,12 +640,8 @@
       <h1>Quick check</h1>
       <p class="form-help">One question, sent immediately for review. Your location and time are captured automatically.</p>
       <form id="quick-form">
-        <fieldset class="panel">
-          <legend>You are</legend>
-          <div class="safety-banner"><span class="safety-icon">!</span>
-            <p><strong>Continue only if you are legally parked or a passenger.</strong> Never answer while driving.</p></div>
-          ${optionList("safety_role", [["parked", "Parked"], ["passenger", "Passenger"]])}
-        </fieldset>
+        <div class="safety-banner"><span class="safety-icon">!</span>
+          <p><strong>Continue only if you are legally parked or a passenger.</strong> Never answer while driving.</p></div>
 
         <fieldset class="panel">
           <legend>Are workers still present in this work zone?</legend>
@@ -725,7 +733,7 @@
       const candidateId = picked ? picked.value : autoSelectedId;
       const record = buildRecord(eventId, {
         reportMode: "quick_check",
-        safetyRole: String(data.get("safety_role")),
+        safetyRole: "not_recorded",
         workersPresent: String(data.get("workers_present")),
         candidateId: candidateId || null,
         matchDisposition: candidateId ? "cannot_tell" : "no_matching_record",
@@ -834,7 +842,6 @@
 
         <fieldset class="panel">
           <legend>8. Photographs</legend>
-          <p class="form-help">Original files are kept as-is. Up to ${MAX_PHOTOS}.</p>
           ${photoSection("full")}
         </fieldset>
 
