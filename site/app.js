@@ -19,6 +19,12 @@
   let datasetError = "";
   let userLocation = null;   // {latitude, longitude, accuracyMeters, capturedAt}
   let mapInstance = null;
+  let objectUrls = [];       // blob URLs for the open view, released on navigation
+
+  const releaseObjectUrls = () => {
+    objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    objectUrls = [];
+  };
 
   const view = document.getElementById("view");
   const dataStrip = document.getElementById("data-strip");
@@ -951,6 +957,111 @@
     }
   };
 
+  const FIELD_LABELS = {
+    workers_present: { yes: "Yes", no: "No", unknown: "I could not tell" },
+    match_disposition: {
+      selected_record: "This is the work zone I observed",
+      reported_location_incorrect: "MDOT's reported location appears incorrect",
+      not_observed: "This is not the work zone I observed",
+      cannot_tell: "I cannot tell",
+      no_matching_record: "No matching MDOT work zone is shown",
+    },
+    observed_condition: {
+      matches_mdot: "It matched the MDOT listing",
+      does_not_match: "It did not match the MDOT listing",
+      cannot_tell: "I could not tell",
+    },
+    navigation_result: {
+      routed_around: "Routed me around the closure",
+      directed_toward_closure: "Directed me toward the closed road or ramp",
+      closure_shown_route_unclear: "Showed the closure, but the route was unclear",
+      cannot_tell: "I could not tell",
+      not_checked: "Not checked",
+    },
+    vehicle_response: {
+      turned_around: "Turned around",
+      stopped_at_closure: "Stopped at the closure",
+      took_detour: "Took a detour",
+      other: "Other",
+      not_observed: "I did not observe a vehicle response",
+    },
+    safety_role: { parked: "Parked", passenger: "Passenger", not_recorded: "Not asked in the quick check" },
+  };
+
+  const renderSavedReport = async (reportId) => {
+    let reports = [];
+    try { reports = await listReports(); } catch { /* handled as missing below */ }
+    const record = reports.find((item) => item.id === reportId);
+    if (!record) {
+      view.innerHTML = `
+        <a class="back-link" href="#/pending">← Your reports</a>
+        <p class="empty">This report is not on this phone.</p>`;
+      return;
+    }
+    const isFull = record.report_mode === "full_inspection";
+    const label = (field, value) => (FIELD_LABELS[field] || {})[value] || statusLabel(value);
+    const rows = [
+      ["Created", record.created_at_local || record.created_at],
+      ["MDOT work zone", record.zone
+        ? `${record.zone.road_display} · ${record.zone.event_id}`
+        : "No matching MDOT record"],
+    ];
+    if (record.zone) {
+      rows.push(["Zone status when sent", `${statusLabel(record.zone.event_status)} · ${published(record.zone.lane_summary)}`]);
+    }
+    rows.push(["Workers still present", label("workers_present", record.workers_present)]);
+    if (isFull) {
+      rows.push(["How the record relates", label("match_disposition", record.match_disposition)]);
+      rows.push(["Road condition", label("observed_condition", record.observed_condition)]);
+      rows.push(["Your role", label("safety_role", record.safety_role)]);
+      rows.push(["Navigation app checked", record.navigation_checked ? "Yes" : "No"]);
+      if (record.navigation_checked) {
+        rows.push(["Navigation directions", label("navigation_result", record.navigation_result)]);
+        rows.push(["Navigation app", statusLabel(record.map_provider)]);
+      }
+      rows.push(["Vehicle response", label("vehicle_response", record.vehicle_response)]);
+    }
+    if (record.notes) rows.push(["Note", record.notes]);
+    const location = record.location || {};
+    rows.push(["Location", classificationLabel(location.classification)]);
+    if (location.accuracy_meters !== null && location.accuracy_meters !== undefined) {
+      rows.push(["GPS accuracy", `About ${Math.round(location.accuracy_meters)} m`]);
+    }
+
+    view.innerHTML = `
+      <a class="back-link" href="#/pending">← Your reports</a>
+      <p class="eyebrow">${esc(isFull ? "Full inspection" : "Quick check")}</p>
+      <h1>${esc(record.id)}</h1>
+      <p class="meta">${reportStatusChip(record)}</p>
+      <dl class="fact-grid panel">
+        ${rows.map(([term, value]) => `<div><dt>${esc(term)}</dt><dd>${esc(value)}</dd></div>`).join("")}
+      </dl>
+      ${record.photos.length
+        ? `<h2 style="margin:16px 0 4px">Photographs</h2>
+           <p class="form-help">Tap a photograph to open it full size — pinch to zoom.</p>
+           <div class="photo-grid" id="saved-photos"></div>`
+        : `<p class="form-help" style="margin-top:14px">No photographs were attached.</p>`}
+      <div class="button-row" style="margin-top:14px">
+        <button class="button" id="saved-export">Export</button>
+      </div>`;
+
+    const grid = document.getElementById("saved-photos");
+    if (grid) {
+      record.photos.forEach((photo, index) => {
+        const url = URL.createObjectURL(photo.blob);
+        objectUrls.push(url);
+        const figure = document.createElement("figure");
+        figure.innerHTML = `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="Photograph ${index + 1} in this report"></a>
+          <figcaption>${esc(photo.name || `Photograph ${index + 1}`)}</figcaption>`;
+        grid.append(figure);
+      });
+    }
+    document.getElementById("saved-export").addEventListener("click", async (event) => {
+      event.target.disabled = true;
+      try { await exportReport(record); } finally { event.target.disabled = false; }
+    });
+  };
+
   const reportStatusChip = (record) => {
     if (record.status === "sent") {
       return `<span class="chip chip-sent">Sent ${record.sent_at ? esc(new Date(record.sent_at).toLocaleString()) : ""}</span>`;
@@ -980,7 +1091,8 @@
             <p class="meta">${esc(record.created_at_local || record.created_at)} · ${esc(record.zone?.road_display || "No matching MDOT record")} · ${esc(String(record.photos.length))} photo(s)${record.workers_present ? ` · Workers: ${esc(record.workers_present)}` : ""}</p>
             <p class="meta">${reportStatusChip(record)}</p>
             <div class="button-row" style="margin-top:10px">
-              ${record.status !== "sent" ? `<button class="button button-primary" data-action="send">Send now</button>` : ""}
+              <button class="button button-primary" data-action="view">View</button>
+              ${record.status !== "sent" ? `<button class="button" data-action="send">Send now</button>` : ""}
               <button class="button" data-action="export">Export</button>
               <button class="button" data-action="delete">Delete</button>
             </div>
@@ -993,6 +1105,10 @@
       const card = button.closest(".report-card");
       const record = reports.find((item) => item.id === card.dataset.id);
       if (!record) return;
+      if (button.dataset.action === "view") {
+        window.location.hash = `#/saved/${encodeURIComponent(record.id)}`;
+        return;
+      }
       if (button.dataset.action === "send") {
         button.disabled = true;
         button.textContent = "Sending…";
@@ -1027,6 +1143,7 @@
 
   const route = async () => {
     destroyMap();
+    releaseObjectUrls();
     const hash = window.location.hash || "#/";
     const [path, queryString] = hash.slice(1).split("?");
     const params = new URLSearchParams(queryString || "");
@@ -1036,6 +1153,7 @@
     if (parts[0] === "zone" && parts[1]) { renderZone(decodeURIComponent(parts[1])); return; }
     if (parts[0] === "report" && parts[1]) { renderReport(decodeURIComponent(parts[1]), params); return; }
     if (parts[0] === "pending") { await renderPending(params); return; }
+    if (parts[0] === "saved" && parts[1]) { await renderSavedReport(decodeURIComponent(parts[1])); return; }
     renderList();
   };
 
