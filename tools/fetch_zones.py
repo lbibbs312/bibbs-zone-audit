@@ -29,7 +29,8 @@ ENDPOINT = (
 )
 ALLOWED_HOST = "mdotridedata.state.mi.us"
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
-RETRYABLE = {429, 500, 502, 503, 504}
+RETRYABLE = {429, 500, 502, 503, 504, 521, 522, 523, 524}
+ATTEMPTS = 4
 OUTPUT = Path(__file__).resolve().parent.parent / "site" / "data" / "zones.json"
 
 
@@ -52,7 +53,7 @@ def fetch(key: str) -> bytes:
     if request.host.split(":")[0] != ALLOWED_HOST:
         raise SystemExit("refusing to contact a host other than the documented one")
     last_error = None
-    for attempt in range(3):
+    for attempt in range(ATTEMPTS):
         try:
             with opener.open(request, timeout=60) as response:
                 body = response.read(MAX_RESPONSE_BYTES + 1)
@@ -60,14 +61,14 @@ def fetch(key: str) -> bytes:
                     raise SystemExit("response exceeded the size ceiling")
                 return body
         except urllib.error.HTTPError as error:
-            if error.code in RETRYABLE and attempt < 2:
-                time.sleep(15 * (attempt + 1))
+            if error.code in RETRYABLE and attempt < ATTEMPTS - 1:
+                time.sleep(20 * (attempt + 1))
                 last_error = error
                 continue
             raise SystemExit(f"RIDE request failed with HTTP {error.code}")
         except urllib.error.URLError as error:
-            if attempt < 2:
-                time.sleep(15 * (attempt + 1))
+            if attempt < ATTEMPTS - 1:
+                time.sleep(20 * (attempt + 1))
                 last_error = error
                 continue
             raise SystemExit(f"RIDE request failed: {error.reason}")
@@ -181,7 +182,16 @@ def main() -> int:
     if not key:
         raise SystemExit("MDOT_RIDE_API_KEY is not set")
 
-    body = fetch(key)
+    try:
+        body = fetch(key)
+    except SystemExit as error:
+        # The feed is temporarily unreachable. Keep serving the previously
+        # collected file — it carries its own honest generated_at_utc, which
+        # the app surfaces as data age. Only fail when no prior data exists.
+        if OUTPUT.exists():
+            print(f"WARNING: {error}; keeping previously collected zones.json")
+            return 0
+        raise
     if key.encode("utf-8") in body:
         raise SystemExit("refusing to continue: response body contains the API key")
 
